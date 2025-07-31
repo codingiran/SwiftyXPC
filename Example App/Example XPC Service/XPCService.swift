@@ -8,7 +8,7 @@
 import SwiftyXPC
 
 @main
-class XPCService {
+final class XPCService: Sendable {
     static func main() {
         do {
             let xpcService = XPCService()
@@ -18,8 +18,8 @@ class XPCService {
 
             let serviceListener = try XPCListener(type: .service, codeSigningRequirement: requirement)
 
-            serviceListener.setMessageHandler(name: CommandSet.capitalizeString, handler: xpcService.capitalizeString)
-            serviceListener.setMessageHandler(name: CommandSet.longRunningTask, handler: xpcService.longRunningTask)
+            serviceListener.setMessageHandler(name: CommandSet.capitalizeString) { try await xpcService.capitalizeString($0, string: $1) }
+            serviceListener.setMessageHandler(name: CommandSet.longRunningTask) { try await xpcService.longRunningTask($0, endpoint: $1) }
 
             serviceListener.activate()
             fatalError("Should never get here")
@@ -29,7 +29,7 @@ class XPCService {
     }
 
     private func capitalizeString(_: XPCConnection, string: String) async throws -> String {
-        return string.uppercased()
+        string.uppercased()
     }
 
     private func longRunningTask(_: XPCConnection, endpoint: XPCEndpoint) async throws {
@@ -40,8 +40,8 @@ class XPCService {
 
         remoteConnection.activate()
 
-        for i in 0...100 {
-            try await Task.sleep(for: .milliseconds(500))
+        for i in 0 ... 100 {
+            try await Task.sleep(for: .milliseconds(100))
 
             try remoteConnection.sendOnewayMessage(
                 name: LongRunningTaskMessage.progressNotification,

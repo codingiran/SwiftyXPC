@@ -6,8 +6,8 @@
 //
 
 import Foundation
-import SwiftyXPC
 import os
+import SwiftyXPC
 
 actor MessageSender {
     static let shared = try! MessageSender()
@@ -29,14 +29,14 @@ actor MessageSender {
     }
 
     func capitalize(string: String) async throws -> String {
-        self.messageSendInProgress = true
+        messageSendInProgress = true
         defer { self.messageSendInProgress = false }
 
-        return try await self.connection.sendMessage(name: CommandSet.capitalizeString, request: string)
+        return try await connection.sendMessage(name: CommandSet.capitalizeString, request: string)
     }
 
     func startLongRunningTask(callback: @escaping (Double?) -> Void) async throws {
-        self.messageSendInProgress = true
+        messageSendInProgress = true
         defer { self.messageSendInProgress = false }
 
         let listener = try XPCListener(type: .anonymous, codeSigningRequirement: nil) // don't actually use nil
@@ -51,6 +51,6 @@ actor MessageSender {
             print("something went wrong: \($1)")
         }
 
-        try await self.connection.sendMessage(name: CommandSet.longRunningTask, request: listener.endpoint)
+        try await connection.sendMessage(name: CommandSet.longRunningTask, request: listener.endpoint)
     }
 }

@@ -10,7 +10,7 @@ import SwiftUI
 import SwiftyXPC
 
 // just to make error reporting a little nicer
-extension XPCError: LocalizedError {
+extension XPCError: @retroactive LocalizedError {
     /// Implementation of `LocalizedError`.
     public var errorDescription: String? {
         switch self {

@@ -1,4 +1,4 @@
-// swift-tools-version:5.7
+// swift-tools-version:6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -13,7 +13,7 @@ let package = Package(
         .library(
             name: "SwiftyXPC",
             targets: ["SwiftyXPC"]
-        )
+        ),
     ],
     dependencies: [],
     targets: [
@@ -33,5 +33,6 @@ let package = Package(
             name: "SwiftyXPCTests",
             dependencies: ["SwiftyXPC", "TestHelper", "TestShared"]
         ),
-    ]
+    ],
+    swiftLanguageModes: [.v6]
 )

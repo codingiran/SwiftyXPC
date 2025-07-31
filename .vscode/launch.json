@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:SwiftyXPC}",
+            "name": "Debug TestHelper",
+            "program": "${workspaceFolder:SwiftyXPC}/.build/debug/TestHelper",
+            "preLaunchTask": "swift: Build Debug TestHelper"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:SwiftyXPC}",
+            "name": "Release TestHelper",
+            "program": "${workspaceFolder:SwiftyXPC}/.build/release/TestHelper",
+            "preLaunchTask": "swift: Build Release TestHelper"
+        }
+    ]
+}

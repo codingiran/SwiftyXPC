@@ -5,8 +5,8 @@
 //  Created by Charles Srstka on 10/12/23.
 //
 
-import Foundation
 import Dispatch
+import Foundation
 import SwiftyXPC
 import TestShared
 
@@ -59,7 +59,7 @@ final class XPCService: Sendable {
                 "Noonien Soong".data(using: .utf8)!,
                 "Arik Soong".data(using: .utf8)!,
                 "Altan Soong".data(using: .utf8)!,
-                "Adam Soong".data(using: .utf8)!
+                "Adam Soong".data(using: .utf8)!,
             ]
         )
     }

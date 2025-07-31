@@ -19,21 +19,21 @@ class HelperLauncher {
         let bundleURL = Bundle(for: Self.self).bundleURL
         let helperURL = bundleURL.deletingLastPathComponent().appending(path: "TestHelper")
 
-        self.plistURL = try Self.writeLaunchdPlist(helperURL: helperURL)
-        self.codeSigningRequirement = try Self.getCodeSigningRequirement(url: helperURL)
+        plistURL = try Self.writeLaunchdPlist(helperURL: helperURL)
+        codeSigningRequirement = try Self.getCodeSigningRequirement(url: helperURL)
     }
 
     func startHelper() throws {
         do {
-            try self.runLaunchctl(verb: "load")
+            try runLaunchctl(verb: "load")
         } catch is LoadError {
-            try self.runLaunchctl(verb: "unload")
-            try self.runLaunchctl(verb: "load")
+            try runLaunchctl(verb: "unload")
+            try runLaunchctl(verb: "load")
         }
     }
 
     func stopHelper() throws {
-        try self.runLaunchctl(verb: "unload")
+        try runLaunchctl(verb: "unload")
     }
 
     private func runLaunchctl(verb: String) throws {
@@ -42,15 +42,15 @@ class HelperLauncher {
         let stderrHandle = stderrPipe.fileHandleForReading
 
         process.executableURL = URL(filePath: "/bin/launchctl")
-        process.arguments = [verb, self.plistURL.path]
+        process.arguments = [verb, plistURL.path]
         process.standardError = stderrPipe
 
         try process.run()
         process.waitUntilExit()
 
         if let stderrData = try stderrHandle.readToEnd(),
-            let stderr = String(data: stderrData, encoding: .utf8),
-            stderr.contains("Load failed:")
+           let stderr = String(data: stderrData, encoding: .utf8),
+           stderr.contains("Load failed:")
         {
             throw LoadError()
         }

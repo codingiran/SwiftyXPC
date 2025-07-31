@@ -1,5 +1,5 @@
 //
-//  ServiceDelegate.swift
+//  XPCService.swift
 //  Example XPC Service
 //
 //  Created by Charles Srstka on 5/5/22.

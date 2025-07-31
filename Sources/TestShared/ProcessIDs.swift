@@ -17,9 +17,9 @@ public struct ProcessIDs: Codable, Sendable {
     public let auditSessionID: au_asid_t
 
     public init(connection: XPCConnection) throws {
-        self.pid = getpid()
-        self.effectiveUID = geteuid()
-        self.effectiveGID = getegid()
-        self.auditSessionID = connection.auditSessionIdentifier
+        pid = getpid()
+        effectiveUID = geteuid()
+        effectiveGID = getegid()
+        auditSessionID = connection.auditSessionIdentifier
     }
 }

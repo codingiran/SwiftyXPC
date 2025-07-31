@@ -6,7 +6,7 @@
 //
 
 // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
-public struct CommandSet {
+public enum CommandSet {
     public static let reportIDs = "com.charlessoft.SwiftyXPC.Tests.ReportIDs"
     public static let capitalizeString = "com.charlessoft.SwiftyXPC.Tests.CapitalizeString"
     public static let multiplyBy5 = "com.charlessoft.SwiftyXPC.Tests.MultiplyBy5"

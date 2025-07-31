@@ -22,7 +22,7 @@ extension XPCError: @retroactive LocalizedError {
             return NSLocalizedString("Bad Code Signature Requirement", comment: "Bad Code Signature Requirement")
         case .terminationImminent:
             return NSLocalizedString("XPC Service Termination Imminent", comment: "XPC Service Termination Imminent")
-        case .unknown(let code):
+        case let .unknown(code):
             return "Error \(code)"
         }
     }

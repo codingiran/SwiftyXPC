@@ -5,7 +5,7 @@
 //
 
 // swift-format-ignore: AllPublicDeclarationsHaveDocumentation
-public struct JokeMessage {
+public enum JokeMessage {
     public struct NotAKnockKnockJoke: Error, Codable {
         public let complaint: String
         public init(complaint: String) {

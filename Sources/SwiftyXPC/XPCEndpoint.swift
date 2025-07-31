@@ -5,6 +5,7 @@
 //  Created by Charles Srstka on 7/24/21.
 //
 
+import Foundation
 import XPC
 
 /// A reference to an `XPCListener` object.
@@ -12,26 +13,26 @@ import XPC
 /// An `XPCEndpoint` can be passed over an active XPC connection, allowing the process on the other end to initialize a new `XPCConnection`
 /// to communicate with it.
 public struct XPCEndpoint: Codable, @unchecked Sendable {
-    private struct CanOnlyBeDecodedByXPCDecoder: Error {
+    private struct CanOnlyBeDecodedByXPCDecoder: Error, Sendable {
         var localizedDescription: String { "XPCEndpoint can only be decoded via XPCDecoder." }
     }
 
-    private struct CanOnlyBeEncodedByXPCEncoder: Error {
+    private struct CanOnlyBeEncodedByXPCEncoder: Error, Sendable {
         var localizedDescription: String { "XPCEndpoint can only be encoded via XPCEncoder." }
     }
 
-    internal let endpoint: xpc_endpoint_t
+    let endpoint: xpc_endpoint_t
 
-    internal init(connection: xpc_connection_t) {
-        self.endpoint = xpc_endpoint_create(connection)
+    init(connection: xpc_connection_t) {
+        endpoint = xpc_endpoint_create(connection)
     }
 
-    internal init(endpoint: xpc_endpoint_t) {
+    init(endpoint: xpc_endpoint_t) {
         self.endpoint = endpoint
     }
 
-    internal func makeConnection() -> xpc_connection_t {
-        xpc_connection_create_from_endpoint(self.endpoint)
+    func makeConnection() -> xpc_connection_t {
+        xpc_connection_create_from_endpoint(endpoint)
     }
 
     /// Required method for the purpose of conforming to the `Decodable` protocol.

@@ -5,6 +5,7 @@
 //  Created by Charles Srstka on 12/19/21.
 //
 
+import Foundation
 import Synchronization
 import XPC
 
@@ -50,7 +51,7 @@ public final class XPCErrorRegistry: Sendable {
     @available(macOS 15.0, macCatalyst 18.0, *)
     private final class MutexWrapper: Sendable {
         let mutex: Mutex<[String: (Error & Codable).Type]>
-        init(dict: [String: (Error & Codable).Type]) { self.mutex = Mutex(dict) }
+        init(dict: [String: (Error & Codable).Type]) { mutex = Mutex(dict) }
     }
 
     private final class LegacyWrapper: @unchecked Sendable {
@@ -76,7 +77,7 @@ public final class XPCErrorRegistry: Sendable {
         if #available(macOS 15.0, macCatalyst 18.0, *) {
             return try (self.errorDomainMapWrapper as! MutexWrapper).mutex.withLock { try closure(&$0) }
         } else {
-            let wrapper = self.errorDomainMapWrapper as! LegacyWrapper
+            let wrapper = errorDomainMapWrapper as! LegacyWrapper
             wrapper.sema.wait()
             defer { wrapper.sema.signal() }
 
@@ -90,23 +91,23 @@ public final class XPCErrorRegistry: Sendable {
     ///   - domain: An `NSError`-style domain string to associate with this error type. In most cases, you will just pass `nil` for this parameter, in which case the default value of `String(reflecting: errorType)` will be used instead.
     ///   - errorType: An error type to register. This type must conform to `Codable`.
     public func registerDomain(_ domain: String? = nil, forErrorType errorType: (Error & Codable).Type) {
-        self.withLock { $0[domain ?? String(reflecting: errorType)] = errorType }
+        withLock { $0[domain ?? String(reflecting: errorType)] = errorType }
     }
 
-    internal func encodeError(_ error: Error, domain: String? = nil) throws -> xpc_object_t {
-        try self.withLock { _ in
+    func encodeError(_ error: Error, domain: String? = nil) throws -> xpc_object_t {
+        try withLock { _ in
             try XPCEncoder().encode(BoxedError(error: error, domain: domain))
         }
     }
 
-    internal func decodeError(_ error: xpc_object_t) throws -> Error {
+    func decodeError(_ error: xpc_object_t) throws -> Error {
         let boxedError = try XPCDecoder().decode(type: BoxedError.self, from: error)
 
         return boxedError.encodedError ?? boxedError
     }
 
-    internal func errorType(forDomain domain: String) -> (any (Error & Codable).Type)? {
-        self.withLock { $0[domain] }
+    func errorType(forDomain domain: String) -> (any (Error & Codable).Type)? {
+        withLock { $0[domain] }
     }
 
     /// An error type representing errors for which we have an `NSError`-style domain and code, but do not know the exact error class.
@@ -115,8 +116,8 @@ public final class XPCErrorRegistry: Sendable {
     /// can be used as a default implementation of the protocol. Foundation clients may want to add an empty implementation as in the example below.
     ///
     ///     extension XPCErrorRegistry.BoxedError: CustomNSError {}
-    public struct BoxedError: Error, Codable {
-        private enum Storage {
+    public struct BoxedError: Error, Codable, Sendable {
+        private enum Storage: Sendable {
             case codable(Error & Codable)
             case uncodable(code: Int)
         }
@@ -134,10 +135,10 @@ public final class XPCErrorRegistry: Sendable {
 
         /// An `NSError`-style error code.
         public var errorCode: Int {
-            switch self.storage {
-            case .codable(let error):
+            switch storage {
+            case let .codable(error):
                 return error._code
-            case .uncodable(let code):
+            case let .uncodable(code):
                 return code
             }
         }
@@ -150,36 +151,36 @@ public final class XPCErrorRegistry: Sendable {
         /// This isn't great, but it allows this class to have basic functionality without depending on Foundation.
         ///
         /// Give `BoxedError` a default implementation of `CustomNSError` in Foundation clients to avoid this being called.
-        public var _domain: String { self.errorDomain }
+        public var _domain: String { errorDomain }
 
         /// Hacky default implementation for internal `Error` requirements.
         ///
         /// This isn't great, but it allows this class to have basic functionality without depending on Foundation.
         ///
         /// Give `BoxedError` a default implementation of `CustomNSError` to avoid this being called.
-        public var _code: Int { self.errorCode }
+        public var _code: Int { errorCode }
 
         fileprivate var encodedError: Error? {
-            switch self.storage {
-            case .codable(let error):
+            switch storage {
+            case let .codable(error):
                 return error
             case .uncodable:
                 return nil
             }
         }
 
-        internal init(domain: String, code: Int) {
-            self.errorDomain = domain
-            self.storage = .uncodable(code: code)
+        init(domain: String, code: Int) {
+            errorDomain = domain
+            storage = .uncodable(code: code)
         }
 
-        internal init(error: Error, domain: String? = nil) {
-            self.errorDomain = domain ?? error._domain
+        init(error: Error, domain: String? = nil) {
+            errorDomain = domain ?? error._domain
 
             if let codableError = error as? (Error & Codable) {
-                self.storage = .codable(codableError)
+                storage = .codable(codableError)
             } else {
-                self.storage = .uncodable(code: error._code)
+                storage = .uncodable(code: error._code)
             }
         }
 
@@ -191,15 +192,15 @@ public final class XPCErrorRegistry: Sendable {
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: Key.self)
 
-            self.errorDomain = try container.decode(String.self, forKey: .domain)
+            errorDomain = try container.decode(String.self, forKey: .domain)
             let code = try container.decode(Int.self, forKey: .code)
 
-            if let codableType = XPCErrorRegistry.shared.errorType(forDomain: self.errorDomain),
-                let codableError = try codableType.decodeIfPresent(from: container, key: .encodedError)
+            if let codableType = XPCErrorRegistry.shared.errorType(forDomain: errorDomain),
+               let codableError = try codableType.decodeIfPresent(from: container, key: .encodedError)
             {
-                self.storage = .codable(codableError)
+                storage = .codable(codableError)
             } else {
-                self.storage = .uncodable(code: code)
+                storage = .uncodable(code: code)
             }
         }
 
@@ -211,31 +212,30 @@ public final class XPCErrorRegistry: Sendable {
         public func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: Key.self)
 
-            try container.encode(self.errorDomain, forKey: .domain)
-            try container.encode(self.errorCode, forKey: .code)
+            try container.encode(errorDomain, forKey: .domain)
+            try container.encode(errorCode, forKey: .code)
 
-            if case .codable(let error) = self.storage {
+            if case let .codable(error) = storage {
                 try error.encode(into: &container, forKey: .encodedError)
             }
         }
     }
 }
 
-extension Error where Self: Codable {
-    fileprivate static func decode(from error: xpc_object_t, using decoder: XPCDecoder) throws -> Error {
+private extension Error where Self: Codable {
+    static func decode(from error: xpc_object_t, using decoder: XPCDecoder) throws -> Error {
         try decoder.decode(type: self, from: error)
     }
 
-    fileprivate static func decodeIfPresent<Key>(from keyedContainer: KeyedDecodingContainer<Key>, key: Key) throws -> Self?
-    {
+    static func decodeIfPresent<Key>(from keyedContainer: KeyedDecodingContainer<Key>, key: Key) throws -> Self? {
         try keyedContainer.decodeIfPresent(Self.self, forKey: key)
     }
 
-    fileprivate func encode(using encoder: XPCEncoder) throws -> xpc_object_t {
+    func encode(using encoder: XPCEncoder) throws -> xpc_object_t {
         try encoder.encode(self)
     }
 
-    fileprivate func encode<Key>(into keyedContainer: inout KeyedEncodingContainer<Key>, forKey key: Key) throws {
+    func encode<Key>(into keyedContainer: inout KeyedEncodingContainer<Key>, forKey key: Key) throws {
         try keyedContainer.encode(self, forKey: key)
     }
 }

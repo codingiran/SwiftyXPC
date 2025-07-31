@@ -1,3 +1,4 @@
+import Foundation
 import Security
 import System
 import XPC
@@ -11,7 +12,7 @@ import XPC
 /// The connection must receive `.activate()` before it can send or receive any messages.
 public class XPCConnection: @unchecked Sendable {
     /// Errors specific to `XPCConnection`.
-    public enum Error: Swift.Error, Codable {
+    public enum Error: Swift.Error, Codable, Sendable {
         /// An XPC message was missing its name.
         case missingMessageName
         /// An XPC message was missing its request and/or response body.
@@ -24,7 +25,7 @@ public class XPCConnection: @unchecked Sendable {
         case callerFailedCredentialCheck(OSStatus)
     }
 
-    private struct MessageKeys {
+    private enum MessageKeys: Sendable {
         static let name = "com.charlessoft.SwiftyXPC.XPCEventHandler.Name"
         static let body = "com.charlessoft.SwiftyXPC.XPCEventHandler.Body"
         static let error = "com.charlessoft.SwiftyXPC.XPCEventHandler.Error"
@@ -43,15 +44,15 @@ public class XPCConnection: @unchecked Sendable {
     /// A handler that will be called if a communication error occurs.
     public typealias ErrorHandler = (XPCConnection, Swift.Error) -> Void
 
-    internal class MessageHandler {
-        typealias RawHandler = ((XPCConnection, xpc_object_t) async throws -> xpc_object_t)
+    class MessageHandler: @unchecked Sendable {
+        typealias RawHandler = @Sendable (XPCConnection, xpc_object_t) async throws -> xpc_object_t
         let closure: RawHandler
         let requestType: Codable.Type
         let responseType: Codable.Type
 
-        init<Request: Codable, Response: Codable>(closure: @escaping (XPCConnection, Request) async throws -> Response) {
-            self.requestType = Request.self
-            self.responseType = Response.self
+        init<Request: Codable, Response: Codable>(closure: @Sendable @escaping (XPCConnection, Request) async throws -> Response) {
+            requestType = Request.self
+            responseType = Response.self
 
             self.closure = { connection, event in
                 guard let body = xpc_dictionary_get_value(event, MessageKeys.body) else {
@@ -71,7 +72,7 @@ public class XPCConnection: @unchecked Sendable {
     @available(macOS, obsoleted: 12.0)
     private let codeSigningRequirement: String?
 
-    internal static func makeAnonymousListenerConnection(codeSigningRequirement: String?) throws -> XPCConnection {
+    static func makeAnonymousListenerConnection(codeSigningRequirement: String?) throws -> XPCConnection {
         try .init(connection: xpc_connection_create(nil, nil), codeSigningRequirement: codeSigningRequirement)
     }
 
@@ -84,17 +85,17 @@ public class XPCConnection: @unchecked Sendable {
     /// - Throws: Any errors that come up in the process of initializing the connection.
     public convenience init(type: ConnectionType, codeSigningRequirement requirement: String? = nil) throws {
         switch type {
-        case .remoteService(let bundleID):
+        case let .remoteService(bundleID):
             try self.init(connection: xpc_connection_create(bundleID, nil), codeSigningRequirement: requirement)
-        case .remoteServiceFromEndpoint(let endpoint):
+        case let .remoteServiceFromEndpoint(endpoint):
             try self.init(connection: endpoint.makeConnection(), codeSigningRequirement: requirement)
-        case .remoteMachService(serviceName: let name, isPrivilegedHelperTool: let isPrivileged):
+        case let .remoteMachService(serviceName: name, isPrivilegedHelperTool: isPrivileged):
             let flags: Int32 = isPrivileged ? XPC_CONNECTION_MACH_SERVICE_PRIVILEGED : 0
             try self.init(machServiceName: name, flags: flags, codeSigningRequirement: requirement)
         }
     }
 
-    internal convenience init(machServiceName: String, flags: Int32, codeSigningRequirement: String? = nil) throws {
+    convenience init(machServiceName: String, flags: Int32, codeSigningRequirement: String? = nil) throws {
         let connection = xpc_connection_create_mach_service(machServiceName, nil, UInt64(flags))
 
         do {
@@ -108,7 +109,7 @@ public class XPCConnection: @unchecked Sendable {
         }
     }
 
-    internal init(connection: xpc_connection_t, codeSigningRequirement: String?) throws {
+    init(connection: xpc_connection_t, codeSigningRequirement: String?) throws {
         self.connection = connection
         self.codeSigningRequirement = codeSigningRequirement
 
@@ -118,18 +119,18 @@ public class XPCConnection: @unchecked Sendable {
             }
         }
 
-        xpc_connection_set_event_handler(self.connection, self.handleEvent)
+        xpc_connection_set_event_handler(self.connection, handleEvent)
     }
 
-    internal var messageHandlers: [String: MessageHandler] = [:]
+    var messageHandlers: [String: MessageHandler] = [:]
 
     /// A handler that will be called if a communication error occurs.
-    public var errorHandler: ErrorHandler? = nil
+    public var errorHandler: ErrorHandler?
 
-    internal var customEventHandler: xpc_handler_t? = nil
+    var customEventHandler: xpc_handler_t?
 
-    internal func getMessageHandler(forName name: String) -> MessageHandler.RawHandler? {
-        self.messageHandlers[name]?.closure
+    func getMessageHandler(forName name: String) -> MessageHandler.RawHandler? {
+        messageHandlers[name]?.closure
     }
 
     /// Set a message handler for an incoming message, identified by the `name` parameter, without taking any arguments or returning any value.
@@ -137,8 +138,8 @@ public class XPCConnection: @unchecked Sendable {
     /// - Parameters:
     ///   - name: A name uniquely identifying the message. This must match the name that the sending process passes to `sendMessage(name:)`.
     ///   - handler: Pass a function that processes the message, optionally throwing an error.
-    public func setMessageHandler(name: String, handler: @escaping (XPCConnection) async throws -> Void) {
-        self.setMessageHandler(name: name) { (connection: XPCConnection, _: XPCNull) async throws -> XPCNull in
+    public func setMessageHandler(name: String, handler: @Sendable @escaping (XPCConnection) async throws -> Void) {
+        setMessageHandler(name: name) { (connection: XPCConnection, _: XPCNull) async throws -> XPCNull in
             try await handler(connection)
             return XPCNull.shared
         }
@@ -152,9 +153,9 @@ public class XPCConnection: @unchecked Sendable {
     ///     conform to the `Codable` protocol, and will automatically be type-checked by `XPCConnection` upon receiving a message.
     public func setMessageHandler<Request: Codable>(
         name: String,
-        handler: @escaping (XPCConnection, Request) async throws -> Void
+        handler: @Sendable @escaping (XPCConnection, Request) async throws -> Void
     ) {
-        self.setMessageHandler(name: name) { (connection: XPCConnection, request: Request) async throws -> XPCNull in
+        setMessageHandler(name: name) { (connection: XPCConnection, request: Request) async throws -> XPCNull in
             try await handler(connection, request)
             return XPCNull.shared
         }
@@ -168,9 +169,9 @@ public class XPCConnection: @unchecked Sendable {
     ///     conform to the `Codable` protocol.
     public func setMessageHandler<Response: Codable>(
         name: String,
-        handler: @escaping (XPCConnection) async throws -> Response
+        handler: @Sendable @escaping (XPCConnection) async throws -> Response
     ) {
-        self.setMessageHandler(name: name) { (connection: XPCConnection, _: XPCNull) in
+        setMessageHandler(name: name) { (connection: XPCConnection, _: XPCNull) in
             try await handler(connection)
         }
     }
@@ -204,36 +205,36 @@ public class XPCConnection: @unchecked Sendable {
     ///   - handler: Pass a function that processes the message and either returns a value or throws an error. Both the request and return values must conform to the `Codable` protocol. The types are automatically type-checked by `XPCConnection` upon receiving a message.
     public func setMessageHandler<Request: Codable, Response: Codable>(
         name: String,
-        handler: @escaping (XPCConnection, Request) async throws -> Response
+        handler: @Sendable @escaping (XPCConnection, Request) async throws -> Response
     ) {
-        self.messageHandlers[name] = MessageHandler(closure: handler)
+        messageHandlers[name] = MessageHandler(closure: handler)
     }
 
     /// The audit session identifier associated with the remote process.
     public var auditSessionIdentifier: au_asid_t {
-        xpc_connection_get_asid(self.connection)
+        xpc_connection_get_asid(connection)
     }
 
     /// The effective group identifier associated with the remote process.
     public var effectiveGroupIdentifier: gid_t {
-        xpc_connection_get_egid(self.connection)
+        xpc_connection_get_egid(connection)
     }
 
     /// The effective user identifier associated with the remote process.
     public var effectiveUserIdentifier: uid_t {
-        xpc_connection_get_euid(self.connection)
+        xpc_connection_get_euid(connection)
     }
 
     /// The process ID of the remote process.
     public var processIdentifier: pid_t {
-        xpc_connection_get_pid(self.connection)
+        xpc_connection_get_pid(connection)
     }
 
     /// Activate the connection.
     ///
     /// Connections start in an inactive state, so you must call `activate()` on a connection before it will send or receive any messages.
     public func activate() {
-        xpc_connection_activate(self.connection)
+        xpc_connection_activate(connection)
     }
 
     /// Suspends the connection so that the event handler block doesn't fire and the connection doesn't attempt to send any messages it has in its queue.
@@ -244,7 +245,7 @@ public class XPCConnection: @unchecked Sendable {
     /// If the event handler is executing at the time of this call, it will finish, and then the connection will be suspended before the next scheduled invocation of
     /// the event handler. The XPC runtime guarantees this non-preemptiveness even for concurrent target queues.
     public func suspend() {
-        xpc_connection_suspend(self.connection)
+        xpc_connection_suspend(connection)
     }
 
     /// Resumes a suspended connection.
@@ -252,7 +253,7 @@ public class XPCConnection: @unchecked Sendable {
     /// In order for a connection to become live, every call to `suspend()` must be balanced with a call to `resume()`.
     /// Calling `resume()` more times than `suspend()` has been called is considered an error.
     public func resume() {
-        xpc_connection_resume(self.connection)
+        xpc_connection_resume(connection)
     }
 
     /// Cancels the connection and ensures that its event handler doesn't fire again.
@@ -260,11 +261,11 @@ public class XPCConnection: @unchecked Sendable {
     /// After this call, any messages that have not yet been sent will be discarded, and the connection will be unwound.
     /// If there are messages that are awaiting replies, they will receive the `XPCError.connectionInvalid` error.
     public func cancel() {
-        xpc_connection_cancel(self.connection)
+        xpc_connection_cancel(connection)
     }
 
-    internal func makeEndpoint() -> XPCEndpoint {
-        XPCEndpoint(connection: self.connection)
+    func makeEndpoint() -> XPCEndpoint {
+        XPCEndpoint(connection: connection)
     }
 
     /// Send a message to an `XPCConnection` in another process without any parameters.
@@ -273,7 +274,7 @@ public class XPCConnection: @unchecked Sendable {
     ///
     /// - Throws: Throws an error if the receiving connection throws an error in its handler, or if a communication error occurs.
     public func sendMessage(name: String) async throws {
-        try await self.sendMessage(name: name, request: XPCNull.shared)
+        try await sendMessage(name: name, request: XPCNull.shared)
     }
 
     /// Send a message to an `XPCConnection` in another process that takes a parameter.
@@ -285,7 +286,7 @@ public class XPCConnection: @unchecked Sendable {
     /// - Throws: Throws an error the `request` parameter does not match the type specified by the receiving connection’s handler function,
     ///   if the receiving connection throws an error in its handler, or if a communication error occurs.
     public func sendMessage<Request: Codable>(name: String, request: Request) async throws {
-        _ = try await self.sendMessage(name: name, request: request) as XPCNull
+        _ = try await sendMessage(name: name, request: request) as XPCNull
     }
 
     /// Send a message to an `XPCConnection` in another process that does not take a parameter, and receives a response.
@@ -296,7 +297,7 @@ public class XPCConnection: @unchecked Sendable {
     ///
     /// - Throws: Throws an error if the receiving connection throws an error in its handler, or if a communication error occurs.
     public func sendMessage<Response: Codable & Sendable>(name: String) async throws -> Response {
-        try await self.sendMessage(name: name, request: XPCNull.shared)
+        try await sendMessage(name: name, request: XPCNull.shared)
     }
 
     /// Send a message to an `XPCConnection` in another process that takes a parameter.
@@ -356,11 +357,11 @@ public class XPCConnection: @unchecked Sendable {
     ///
     /// - Throws: Any communication errors that occur in the process of sending the message.
     public func sendOnewayMessage<Message: Codable>(name: String? = nil, message: Message) throws {
-        try self.sendOnewayRawMessage(name: name, body: XPCEncoder().encode(message), key: MessageKeys.body, asReplyTo: nil)
+        try sendOnewayRawMessage(name: name, body: XPCEncoder().encode(message), key: MessageKeys.body, asReplyTo: nil)
     }
 
     private func sendOnewayError(error: Swift.Error, asReplyTo original: xpc_object_t?) throws {
-        try self.sendOnewayRawMessage(
+        try sendOnewayRawMessage(
             name: nil,
             body: XPCErrorRegistry.shared.encodeError(error),
             key: MessageKeys.error,
@@ -387,7 +388,7 @@ public class XPCConnection: @unchecked Sendable {
 
         xpc_dictionary_set_value(xpcMessage, key, body)
 
-        xpc_connection_send_message(self.connection, xpcMessage)
+        xpc_connection_send_message(connection, xpcMessage)
     }
 
     /// Issues a barrier against the connection's message-send activity.
@@ -418,7 +419,7 @@ public class XPCConnection: @unchecked Sendable {
     /// It is important to note that a barrier block's execution order is not guaranteed with respect to other blocks that have been scheduled on the
     /// target queue of the connection. Or said differently, `sendBarrier(_:)` is not equivalent to `DispatchQueue.async`.
     public func sendBarrier(_ barrier: @escaping () -> Void) {
-        xpc_connection_send_barrier(self.connection, barrier)
+        xpc_connection_send_barrier(connection, barrier)
     }
 
     private func handleEvent(_ event: xpc_object_t) {
@@ -426,14 +427,14 @@ public class XPCConnection: @unchecked Sendable {
             // On Monterey and later, we are relying on xpc's built-in functionality for checking code signatures instead
         } else {
             do {
-                try self.checkCallerCredentials(event: event)
+                try checkCallerCredentials(event: event)
             } catch {
-                self.errorHandler?(self, error)
+                errorHandler?(self, error)
                 return
             }
         }
 
-        if let customEventHandler = self.customEventHandler {
+        if let customEventHandler = customEventHandler {
             customEventHandler(event)
             return
         }
@@ -445,21 +446,21 @@ public class XPCConnection: @unchecked Sendable {
                     throw try XPCErrorRegistry.shared.decodeError(error)
                 }
 
-                self.respond(to: event)
+                respond(to: event)
             case .error:
                 throw XPCError(error: event)
             default:
                 throw Error.typeMismatch(expected: .dictionary, actual: event.type)
             }
         } catch {
-            self.errorHandler?(self, error)
+            errorHandler?(self, error)
             return
         }
     }
 
     @available(macOS, obsoleted: 12.0)
     private func checkCallerCredentials(event: xpc_object_t) throws {
-        guard let requirementString = self.codeSigningRequirement else { return }
+        guard let requirementString = codeSigningRequirement else { return }
 
         var code: SecCode? = nil
         var err: OSStatus
@@ -549,6 +550,6 @@ public class XPCConnection: @unchecked Sendable {
 
     @available(*, deprecated, message: "Use sendOnewayMessage(name:message:) instead")
     public func sendOnewayMessage<Message: Codable>(message: Message, name: String?) throws {
-        try self.sendOnewayMessage(name: name, message: message)
+        try sendOnewayMessage(name: name, message: message)
     }
 }

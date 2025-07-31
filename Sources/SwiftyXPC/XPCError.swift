@@ -1,3 +1,4 @@
+import Foundation
 import XPC
 
 /// An XPC-related communication error.
@@ -24,7 +25,7 @@ public enum XPCError: Error, Codable, Sendable {
     /// An unknown error. The string parameter represents the description coming from the XPC system.
     case unknown(String)
 
-    internal init(error: xpc_object_t) {
+    init(error: xpc_object_t) {
         if error === XPC_ERROR_CONNECTION_INTERRUPTED {
             self = .connectionInterrupted
         } else if error === XPC_ERROR_CONNECTION_INVALID {
@@ -41,7 +42,7 @@ public enum XPCError: Error, Codable, Sendable {
     /// A description of the error, intended to be a default implementation for the `LocalizedError` protocol.
     ///
     /// Is not guaranteed to be localized.
-    public var errorDescription: String? { self.failureReason }
+    public var errorDescription: String? { failureReason }
 
     /// A string describing the reason that the error occurred, intended to be a default implementation for the `LocalizedError` protocol.
     ///
@@ -56,7 +57,7 @@ public enum XPCError: Error, Codable, Sendable {
             return Self.errorString(error: XPC_ERROR_TERMINATION_IMMINENT)
         case .invalidCodeSignatureRequirement:
             return "Invalid Code Signature Requirement"
-        case .unknown(let failureReason):
+        case let .unknown(failureReason):
             return failureReason
         }
     }

@@ -5,9 +5,10 @@
 //  Created by Charles Srstka on 8/8/21.
 //
 
+import Foundation
+import os
 import System
 import XPC
-import os
 
 /// A listener that waits for new incoming connections, configures them, and accepts or rejects them.
 ///
@@ -18,9 +19,9 @@ import os
 /// Use the `setMessageHandler` family of functions to set up handler functions to receive messages.
 ///
 /// A listener must receive `.activate()` before it can receive any messages.
-public final class XPCListener {
+public final class XPCListener: @unchecked Sendable {
     /// The type of the listener.
-    public enum ListenerType {
+    public enum ListenerType: Sendable {
         /// An anonymous listener connection. This can be passed to other processes by embedding its `endpoint` in an XPC message.
         case anonymous
         /// A service listener used to listen for incoming connections in an embedded XPC service. Requires the service’s `Info.plist` to be configured correctly.
@@ -29,7 +30,7 @@ public final class XPCListener {
         case machService(name: String)
     }
 
-    private enum Backing {
+    private enum Backing: Sendable {
         case xpcMain
         case connection(connection: XPCConnection, isMulti: Bool)
     }
@@ -43,27 +44,28 @@ public final class XPCListener {
     /// The receiver of the endpoint can use this object to create a new connection to this `XPCListener` object.
     /// The resulting `XPCEndpoint` object uniquely names this listener object across connections.
     public var endpoint: XPCEndpoint {
-        switch self.backing {
+        switch backing {
         case .xpcMain:
             fatalError("Can't get endpoint for main service listener")
-        case .connection(let connection, _):
+        case let .connection(connection, _):
             return connection.makeEndpoint()
         }
     }
 
     // because xpc_main takes a C function that can't capture any context, we need to store the xpc_main listener globally
     private class XPCMainListenerStorage: @unchecked Sendable {
-        var xpcMainListener: XPCListener? = nil
+        var xpcMainListener: XPCListener?
     }
+
     private static let xpcMainListenerStorage = XPCMainListenerStorage()
 
     private var _messageHandlers: [String: XPCConnection.MessageHandler] = [:]
     private var messageHandlers: [String: XPCConnection.MessageHandler] {
-        if case .connection(let connection, let isMulti) = self.backing, !isMulti {
+        if case let .connection(connection, isMulti) = backing, !isMulti {
             return connection.messageHandlers
         }
 
-        return self._messageHandlers
+        return _messageHandlers
     }
 
     /// Set a message handler for an incoming message, identified by the `name` parameter, without taking any arguments or returning any value.
@@ -71,8 +73,8 @@ public final class XPCListener {
     /// - Parameters:
     ///   - name: A name uniquely identifying the message. This must match the name that the sending process passes to `sendMessage(name:)`.
     ///   - handler: Pass a function that processes the message, optionally throwing an error.
-    public func setMessageHandler(name: String, handler: @escaping (XPCConnection) async throws -> Void) {
-        self.setMessageHandler(name: name) { (connection: XPCConnection, _: XPCNull) async throws -> XPCNull in
+    public func setMessageHandler(name: String, handler: @Sendable @escaping (XPCConnection) async throws -> Void) {
+        setMessageHandler(name: name) { (connection: XPCConnection, _: XPCNull) async throws -> XPCNull in
             try await handler(connection)
             return XPCNull.shared
         }
@@ -86,9 +88,9 @@ public final class XPCListener {
     ///     conform to the `Codable` protocol, and will automatically be type-checked by `XPCConnection` upon receiving a message.
     public func setMessageHandler<Request: Codable>(
         name: String,
-        handler: @escaping (XPCConnection, Request) async throws -> Void
+        handler: @Sendable @escaping (XPCConnection, Request) async throws -> Void
     ) {
-        self.setMessageHandler(name: name) { (connection: XPCConnection, request: Request) async throws -> XPCNull in
+        setMessageHandler(name: name) { (connection: XPCConnection, request: Request) async throws -> XPCNull in
             try await handler(connection, request)
             return XPCNull.shared
         }
@@ -102,9 +104,9 @@ public final class XPCListener {
     ///     conform to the `Codable` protocol.
     public func setMessageHandler<Response: Codable>(
         name: String,
-        handler: @escaping (XPCConnection) async throws -> Response
+        handler: @Sendable @escaping (XPCConnection) async throws -> Response
     ) {
-        self.setMessageHandler(name: name) { (connection: XPCConnection, _: XPCNull) async throws -> Response in
+        setMessageHandler(name: name) { (connection: XPCConnection, _: XPCNull) async throws -> Response in
             try await handler(connection)
         }
     }
@@ -138,34 +140,34 @@ public final class XPCListener {
     ///   - handler: Pass a function that processes the message and either returns a value or throws an error. Both the request and return values must conform to the `Codable` protocol. The types are automatically type-checked by `XPCConnection` upon receiving a message.
     public func setMessageHandler<Request: Codable, Response: Codable>(
         name: String,
-        handler: @escaping (XPCConnection, Request) async throws -> Response
+        handler: @Sendable @escaping (XPCConnection, Request) async throws -> Response
     ) {
-        if case .connection(let connection, let isMulti) = self.backing, !isMulti {
+        if case let .connection(connection, isMulti) = backing, !isMulti {
             connection.setMessageHandler(name: name, handler: handler)
             return
         }
 
-        self._messageHandlers[name] = XPCConnection.MessageHandler(closure: handler)
+        _messageHandlers[name] = XPCConnection.MessageHandler(closure: handler)
     }
 
     private let _codeSigningRequirement: String?
 
-    private var _errorHandler: XPCConnection.ErrorHandler? = nil
+    private var _errorHandler: XPCConnection.ErrorHandler?
 
     /// A handler that will be called if a communication error occurs.
     public var errorHandler: XPCConnection.ErrorHandler? {
         get {
-            if case .connection(let connection, let isMulti) = self.backing, !isMulti {
+            if case let .connection(connection, isMulti) = backing, !isMulti {
                 return connection.errorHandler
             }
 
-            return self._errorHandler
+            return _errorHandler
         }
         set {
-            if case .connection(let connection, let isMulti) = self.backing, !isMulti {
+            if case let .connection(connection, isMulti) = backing, !isMulti {
                 connection.errorHandler = newValue
             } else {
-                self._errorHandler = newValue
+                _errorHandler = newValue
             }
         }
     }
@@ -182,30 +184,30 @@ public final class XPCListener {
 
         switch type {
         case .anonymous:
-            self._codeSigningRequirement = nil
-            self.backing = .connection(
-                connection: try XPCConnection.makeAnonymousListenerConnection(codeSigningRequirement: requirement),
+            _codeSigningRequirement = nil
+            backing = try .connection(
+                connection: XPCConnection.makeAnonymousListenerConnection(codeSigningRequirement: requirement),
                 isMulti: false
             )
         case .service:
-            self.backing = .xpcMain
-            self._codeSigningRequirement = requirement
-        case .machService(let name):
+            backing = .xpcMain
+            _codeSigningRequirement = requirement
+        case let .machService(name):
             let connection = try XPCConnection(
                 machServiceName: name,
                 flags: XPC_CONNECTION_MACH_SERVICE_LISTENER,
                 codeSigningRequirement: requirement
             )
 
-            self._codeSigningRequirement = nil
-            self.backing = .connection(connection: connection, isMulti: true)
+            _codeSigningRequirement = nil
+            backing = .connection(connection: connection, isMulti: true)
         }
 
-        self.setUpConnection(requirement: requirement)
+        setUpConnection(requirement: requirement)
     }
 
     private func setUpConnection(requirement: String?) {
-        switch self.backing {
+        switch backing {
         case .xpcMain:
             Self.xpcMainListenerStorage.xpcMainListener = self
         case .connection(let connection, _):
@@ -233,10 +235,10 @@ public final class XPCListener {
     /// After this call, any messages that have not yet been sent will be discarded, and the connection will be unwound.
     /// If there are messages that are awaiting replies, they will receive the `XPCError.connectionInvalid` error.
     public func cancel() {
-        switch self.backing {
+        switch backing {
         case .xpcMain:
             fatalError("XPC service listener cannot be cancelled")
-        case .connection(let connection, _):
+        case let .connection(connection, _):
             connection.cancel()
         }
     }
@@ -245,7 +247,7 @@ public final class XPCListener {
     ///
     /// Listeners start in an inactive state, so you must call `activate()` on a connection before it will send or receive any messages.
     public func activate() {
-        switch self.backing {
+        switch backing {
         case .xpcMain:
             xpc_main {
                 do {
@@ -264,7 +266,7 @@ public final class XPCListener {
                     os_log(.fault, "Can’t initialize incoming XPC connection!")
                 }
             }
-        case .connection(let connection, _):
+        case let .connection(connection, _):
             connection.activate()
         }
     }
@@ -279,10 +281,10 @@ public final class XPCListener {
     ///
     /// Listeners initialized with the `.service` type cannot be suspended, so calling `.suspend()` on these listeners is considered an error.
     public func suspend() {
-        switch self.backing {
+        switch backing {
         case .xpcMain:
             fatalError("XPC service listener cannot be suspended")
-        case .connection(let connection, _):
+        case let .connection(connection, _):
             connection.suspend()
         }
     }
@@ -294,10 +296,10 @@ public final class XPCListener {
     ///
     /// Listeners initialized with the `.service` type cannot be suspended, so calling `.resume()` on these listeners is considered an error.
     public func resume() {
-        switch self.backing {
+        switch backing {
         case .xpcMain:
             fatalError("XPC service listener cannot be resumed")
-        case .connection(let connection, _):
+        case let .connection(connection, _):
             connection.resume()
         }
     }

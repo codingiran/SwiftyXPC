@@ -5,6 +5,7 @@
 //  Created by Charles Srstka on 12/20/21.
 //
 
+import Foundation
 import XPC
 
 /// Enum representing the type of an XPC object.
@@ -104,7 +105,7 @@ public enum XPCType: Codable, Sendable {
             return String(cString: xpc_type_get_name(XPC_TYPE_UINT64))
         case .uuid:
             return String(cString: xpc_type_get_name(XPC_TYPE_UUID))
-        case .unknown(let name):
+        case let .unknown(name):
             return name
         }
     }

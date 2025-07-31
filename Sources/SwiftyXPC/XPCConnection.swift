@@ -80,10 +80,26 @@ public class XPCConnection: @unchecked Sendable {
     ///
     /// - Parameters:
     ///   - type: The type of connection to create. See the documentation for `ConnectionType` for possible values.
+    public convenience init(type: ConnectionType) {
+        switch type {
+        case let .remoteService(bundleID):
+            self.init(connection: xpc_connection_create(bundleID, nil))
+        case let .remoteServiceFromEndpoint(endpoint):
+            self.init(connection: endpoint.makeConnection())
+        case let .remoteMachService(serviceName: name, isPrivilegedHelperTool: isPrivileged):
+            let flags: Int32 = isPrivileged ? XPC_CONNECTION_MACH_SERVICE_PRIVILEGED : 0
+            self.init(machServiceName: name, flags: flags)
+        }
+    }
+
+    /// Initialize a new `XPCConnection`.
+    ///
+    /// - Parameters:
+    ///   - type: The type of connection to create. See the documentation for `ConnectionType` for possible values.
     ///   - requirement: An optional code signing requirement. If specified, the connection will reject all messages from processes that do not meet the specified requirement.
     ///
     /// - Throws: Any errors that come up in the process of initializing the connection.
-    public convenience init(type: ConnectionType, codeSigningRequirement requirement: String? = nil) throws {
+    public convenience init(type: ConnectionType, codeSigningRequirement requirement: String?) throws {
         switch type {
         case let .remoteService(bundleID):
             try self.init(connection: xpc_connection_create(bundleID, nil), codeSigningRequirement: requirement)
@@ -95,7 +111,12 @@ public class XPCConnection: @unchecked Sendable {
         }
     }
 
-    convenience init(machServiceName: String, flags: Int32, codeSigningRequirement: String? = nil) throws {
+    convenience init(machServiceName: String, flags: Int32) {
+        let connection = xpc_connection_create_mach_service(machServiceName, nil, UInt64(flags))
+        self.init(connection: connection)
+    }
+
+    convenience init(machServiceName: String, flags: Int32, codeSigningRequirement: String?) throws {
         let connection = xpc_connection_create_mach_service(machServiceName, nil, UInt64(flags))
 
         do {
@@ -107,6 +128,12 @@ public class XPCConnection: @unchecked Sendable {
             xpc_connection_cancel(connection)
             throw error
         }
+    }
+
+    init(connection: xpc_connection_t) {
+        self.connection = connection
+        codeSigningRequirement = nil
+        xpc_connection_set_event_handler(self.connection, handleEvent)
     }
 
     init(connection: xpc_connection_t, codeSigningRequirement: String?) throws {

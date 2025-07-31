@@ -210,8 +210,9 @@ public final class XPCListener: @unchecked Sendable {
         switch backing {
         case .xpcMain:
             Self.xpcMainListenerStorage.xpcMainListener = self
-        case .connection(let connection, _):
-            connection.customEventHandler = { [weak self] in
+        case let .connection(connection, _):
+            connection.customEventHandler = { [weak self, weak connection] in
+                guard let self, let connection else { return }
                 do {
                     guard case .connection = $0.type else {
                         preconditionFailure("XPCListener is required to have connection backing when run as a Mach service")
@@ -219,12 +220,12 @@ public final class XPCListener: @unchecked Sendable {
 
                     let newConnection = try XPCConnection(connection: $0, codeSigningRequirement: requirement)
 
-                    newConnection.messageHandlers = self?.messageHandlers ?? [:]
-                    newConnection.errorHandler = self?.errorHandler
+                    newConnection.messageHandlers = messageHandlers
+                    newConnection.errorHandler = errorHandler
 
                     newConnection.activate()
                 } catch {
-                    self?.errorHandler?(connection, error)
+                    errorHandler?(connection, error)
                 }
             }
         }
